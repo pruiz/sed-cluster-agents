@@ -31,6 +31,8 @@ export LC_ALL LANG PATH
 : ${SEDUTIL=/usr/sbin/sedutil-cli}
 
 : ${OCF_RESKEY_nolock=0}
+: ${OCF_RESKEY_validate_locking=1}
+: ${OCF_RESKEY_monitor_checks_locking=1}
 
 USAGE="usage: $0 {start|stop|status|monitor|validate-all|meta-data|metadata}";
 
@@ -70,6 +72,20 @@ Do not lock devices on stop/disable
 <shortdesc lang="en">Do not lock devices</shortdesc>
 <content type="boolean" default="0" />
 </parameter>
+<parameter name="validate_locking" unique="1" required="0">
+<longdesc lang="en">
+Verify wether devices have locking enabled during validate-all
+</longdesc>
+<shortdesc lang="en">Validate locking enabled</shortdesc>
+<content type="boolean" default="1" />
+</parameter>
+<parameter name="monitor_checks_locking" unique="1" required="0">
+<longdesc lang="en">
+Check devices locking status during monitor.
+</longdesc>
+<shortdesc lang="en">Monitor locking status</shortdesc>
+<content type="boolean" default="1" />
+</parameter>
 </parameters>
 
 <actions>
@@ -106,6 +122,8 @@ unlock_device() {
 	local -r device="$1"
 	local -r password="$OCF_RESKEY_password"
 
+	ocf_log debug "trying to unlock: $device"
+
 	if ! device_is_locked "$device"; then
 		ocf_log info "unlock_device: device ${device} already unlocked, skipping."
 		return $OCF_SUCCESS
@@ -131,6 +149,8 @@ unlock_devices() {
 			ocf_log err "unlocking of ${device} failed: $?"
 			result=$OCF_ERR_GENERIC
 		fi
+		# Mark pseudo-resource as stopped unconditionally..
+		ha_pseudo_resource "sed-unlock-${OCF_RESOURCE_INSTANCE}.${device##*/}" stop
 	done
 
 	return $result
@@ -169,6 +189,8 @@ lock_devices() {
 		if ! lock_device "$(readlink -f ${device})"; then
 			ocf_log err "locking of ${device} failed: $?"
 			result=$OCF_ERR_GENERIC
+		else
+			ha_pseudo_resource "sed-unlock-${OCF_RESOURCE_INSTANCE}.${device##*/}" stop
 		fi
 	done
 
@@ -190,6 +212,11 @@ validate () {
 		return $OCF_ERR_CONFIGURED
 	fi
 
+	if ! ocf_is_true $OCF_RESKEY_validate_locking; then
+		ocf_log debug "validate: locking check disabled, validation finished."
+		return $OCF_SUCCESS
+	fi
+
 	# Check wether all devices have locking enabled
 	for device in "${devices[@]}"; do
 		if ! device_locking_enabled "$(readlink -f $device)"; then
@@ -206,6 +233,18 @@ monitor () {
 	local -i result=$OCF_SUCCESS
 
 	validate || return $?
+
+	if ! ocf_is_true $OCF_RESKEY_monitor_checks_locking; then
+		for device in "${devices[@]}"; do
+			ha_pseudo_resource "sed-unlock-${OCF_RESOURCE_INSTANCE}.${device##*/}" monitor
+			if [ $? -ne $OCF_SUCCESS ]; then
+				ocf_log info "monitor: pseudo device $device not unlocked ($?)."
+				result=$OCF_NOT_RUNNING
+			fi
+		done
+		# real (non-speudo) lock monitoring disabled, so let's return now.
+		return $result
+	fi
 
 	for device in "${devices[@]}"; do
 		if device_is_locked "$(readlink -f $device)"; then
