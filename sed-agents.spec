@@ -20,6 +20,7 @@ URL:            http://www.github.com/pruiz/sed-cluster-agents
 Source:		%{name}-%{srcrev}.tar.gz
 BuildRoot:      %(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 Requires:       resource-agents
+Requires:	sedutil
 BuildArch:      noarch
 
 %description
