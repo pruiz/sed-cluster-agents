@@ -1,6 +1,6 @@
 %{!?srcver:	%define srcver 1.0}
 %{!?srcrev:	%define srcrev master}
-%{!?buildno:	%define buildno 1}
+%{!?buildno:	%define buildno 3}
 
 %define _provider netway
 
